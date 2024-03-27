@@ -10,6 +10,18 @@ load_dotenv()
 user_Access_Token = environ.get("USER_ACCESS_TOKEN")
 task_Guid = environ.get("TASK_GUID")
 
+def process_task_data(task_data):
+    """
+    从任务数据中提取所需信息并转换格式
+    """
+    processed_data = {
+        '任务项': task_data['summary'],
+        '创建人': task_data['creator']['id'],
+        '任务创建时间': TimeChange(task_data['created_at'])
+    }
+
+    return processed_data
+
 def main():
     try:
         response = init()
@@ -24,12 +36,10 @@ def main():
 
     json_str = lark.JSON.marshal(response.data, indent=4)
     data = json.loads(json_str)
-    custom_fields = data['task']['custom_fields']
-    
-    df = pd.DataFrame(custom_fields)
-    df = df.assign(序号=df['guid'])
-    
-    df.to_excel('output.xlsx', index=False)
+
+    processed_data = process_task_data(data['task'])
+    df = pd.DataFrame([processed_data])
+
     writer = pd.ExcelWriter('output.xlsx', engine='xlsxwriter')
     df.to_excel(writer, sheet_name='Sheet1', index=False)
 
@@ -42,7 +52,6 @@ def main():
 
     # 保存Excel文件
     writer.close()
-
 
     print("ok")
 
@@ -64,7 +73,7 @@ def init():
 
 
 def TimeChange(unixTime):
-    timestamp = unixTime / 1000
+    timestamp = int(unixTime) / 1000
     return datetime.fromtimestamp(timestamp)
 
 if __name__ == "__main__":
