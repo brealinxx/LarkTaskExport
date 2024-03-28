@@ -1,0 +1,5 @@
+lark-oapi
+pandas
+python-dotenv
+pyinstaller
+python-dotenv
