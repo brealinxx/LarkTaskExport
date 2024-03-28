@@ -1,13 +1,24 @@
+#!/usr/bin/env python3
+
 import lark_oapi as lark
 import json
 import pandas as pd
+import sys
+import os
 from os import environ
 from datetime import datetime
 from dotenv import load_dotenv
 from lark_oapi.api.task.v2 import *
 from lark_oapi.api.contact.v3 import *
 
-load_dotenv()
+#todo 现在只能一个任务，需要做递归清单任务id
+if getattr(sys, 'frozen', False):
+    executable_dir = os.path.dirname(sys.executable)
+    env_path = os.path.join(executable_dir, '.env')
+else:
+    script_dir = os.path.dirname(sys.argv[0])
+    env_path = os.path.join(script_dir, '.env')
+load_dotenv(env_path)
 user_Access_Token = environ.get("USER_ACCESS_TOKEN")
 task_Guid = environ.get("TASK_GUID")
 
@@ -18,7 +29,8 @@ def process_task_data(task_data):
     processed_data = {
         '任务项': task_data['summary'],
         '创建人': GetNameByUserID(task_data['creator']['id']),
-        '任务创建时间': TimeChange(task_data['created_at'])
+        '任务创建时间': TimeChange(task_data['created_at']),
+        '负责人': GetMemberNameByLoop(task_data['members'])
     }
 
     return processed_data
@@ -35,7 +47,12 @@ def main():
     processed_data = process_task_data(data['task'])
     df = pd.DataFrame([processed_data])
 
-    writer = pd.ExcelWriter('output.xlsx', engine='xlsxwriter')
+    if getattr(sys, 'frozen', False):
+        file_path = executable_dir
+    else:
+        file_path = os.getcwd()
+    excel_file_path = os.path.join(file_path, 'output.xlsx')
+    writer = pd.ExcelWriter(excel_file_path, engine='xlsxwriter')
     df.to_excel(writer, sheet_name='Sheet1', index=False)
 
     workbook = writer.book
@@ -47,18 +64,21 @@ def main():
 
     # 保存Excel文件
     writer.close()
-
-    print("ok")
+    print("Excel 文件保存成功")
 
 def init():
-    client = lark.Client.builder() \
+    if getattr(sys, 'frozen', False):
+        log_level = lark.LogLevel.INFO 
+    else:
+        log_level = lark.LogLevel.DEBUG
+    
+    return lark.Client.builder() \
         .enable_set_token(True) \
-        .log_level(lark.LogLevel.DEBUG) \
+        .log_level(log_level) \
         .build()
-    return client
 
 def GetListOfTasksRequest():
-    client  = init()
+    client = init()
     request: GetTaskRequest = GetTaskRequest.builder() \
         .task_guid(task_Guid) \
         .user_id_type("open_id") \
@@ -74,7 +94,7 @@ def GetListOfTasksRequest():
     return response
 
 def GetUserNameRequest(userID):
-    client  = init()
+    client = init()
     request: GetUserRequest = GetUserRequest.builder() \
         .user_id(userID) \
         .user_id_type("open_id") \
@@ -98,6 +118,15 @@ def GetNameByUserID(userID):
     except KeyError as e:
         print(f"KeyError: {e}")
         return None
+    
+def GetMemberNameByLoop(members):
+    members_name = []
+    for member in members:
+        if member['role'] == 'assignee':
+            members_name.append(GetNameByUserID(member['id']))
+
+    return members_name
+
 
 def TimeChange(unixTime):
     timestamp = int(unixTime) / 1000
