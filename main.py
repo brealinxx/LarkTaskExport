@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import lark_oapi as lark
 import json
 import pandas as pd
@@ -30,7 +28,11 @@ def process_task_data(task_data):
         '任务项': task_data['summary'],
         '创建人': GetNameByUserID(task_data['creator']['id']),
         '任务创建时间': TimeChange(task_data['created_at']),
-        '负责人': GetMemberNameByLoop(task_data['members'])
+        '负责人': GetMemberNameByLoop(task_data['members']),
+        '开始时间': TimeChange(task_data['start']['timestamp']) if 'start' in task_data and 'timestamp' in task_data['start'] else None,
+        '完成时间': TimeChange(task_data['completed_at']),
+        '计划工时': GetCustomPlannedWorkingHours(task_data['custom_fields']),
+        '开发工时': GetCustomDevelopmentHours(task_data['custom_fields'])
     }
 
     return processed_data
@@ -121,16 +123,37 @@ def GetNameByUserID(userID):
     
 def GetMemberNameByLoop(members):
     members_name = []
-    for member in members:
-        if member['role'] == 'assignee':
-            members_name.append(GetNameByUserID(member['id']))
+    if CheckExists(members):
+        for member in members:
+            if member['role'] == 'assignee':
+                members_name.append(GetNameByUserID(member['id']))
 
     return members_name
 
+def GetCustomPlannedWorkingHours(custom_fields):
+    """本项目自定义字段：计划工时"""
+    if CheckExists(custom_fields):
+        for fields in custom_fields:
+            if fields['name'] == '计划工时':
+                return fields['number_value']
+        
+    return None
+
+def GetCustomDevelopmentHours(custom_fields):
+    """本项目自定义字段：开发工时"""
+    if CheckExists(custom_fields):
+        for fields in custom_fields:
+            if fields['name'] == '开发工时':
+                return fields['number_value']
+    return None
 
 def TimeChange(unixTime):
-    timestamp = int(unixTime) / 1000
-    return datetime.fromtimestamp(timestamp)
+    if CheckExists(unixTime):
+        timestamp = int(unixTime) / 1000
+        return datetime.fromtimestamp(timestamp)
+    
+def CheckExists(unCheckItem):
+    return unCheckItem != None or unCheckItem != ''
 
 if __name__ == "__main__":
     main()
