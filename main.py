@@ -3,6 +3,8 @@ import json
 import pandas as pd
 import sys
 import os
+import time
+import threading
 from os import environ
 from datetime import datetime
 from dotenv import load_dotenv
@@ -18,55 +20,91 @@ else:
     env_path = os.path.join(script_dir, '.env')
 load_dotenv(env_path)
 user_Access_Token = environ.get("USER_ACCESS_TOKEN")
-task_Guid = environ.get("TASK_GUID")
+tasklist_Guid = environ.get("TASKLIST_GUID")
 
 def process_task_data(task_data):
     """
     从任务数据中提取所需信息并转换格式
     """
     processed_data = {
-        '任务项': task_data['summary'],
-        '创建人': GetNameByUserID(task_data['creator']['id']),
-        '任务创建时间': TimeChange(task_data['created_at']),
-        '负责人': GetMemberNameByLoop(task_data['members']),
-        '开始时间': TimeChange(task_data['start']['timestamp']) if 'start' in task_data and 'timestamp' in task_data['start'] else None,
-        '完成时间': TimeChange(task_data['completed_at']),
-        '计划工时': GetCustomPlannedWorkingHours(task_data['custom_fields']),
-        '开发工时': GetCustomDevelopmentHours(task_data['custom_fields'])
+        '任务项': task_data.summary,
+        '创建人': GetNameByUserID(task_data.creator.id),
+        '任务创建时间': TimeChange(task_data.created_at),
+        '负责人': GetMemberNameByLoop(task_data.members),
+        '开始时间': TimeChange(task_data.start.timestamp) if 'start' == task_data and 'timestamp' == task_data.start else None,
+        '完成时间': TimeChange(task_data.completed_at),
+        '计划工时': GetCustomPlannedWorkingHoursFields(task_data.custom_fields),
+        '开发工时': GetCustomDevelopmentHoursFields(task_data.custom_fields)
     }
 
     return processed_data
 
 def main():
-    listOfTasks_response = GetListOfTasksRequest()
-
-    # 处理业务结果
-    #lark.logger.info(lark.JSON.marshal(response.data, indent=4))
-
-    json_str = lark.JSON.marshal(listOfTasks_response.data, indent=4)
-    data = json.loads(json_str)
-
-    processed_data = process_task_data(data['task'])
-    df = pd.DataFrame([processed_data])
-
+    loading_thread = threading.Thread(target=PrintLoadingMessage, args=(10,))
+    loading_thread.start()
+    tasks_response = GetTasksOfListRequest()
+    tasks_data = tasks_response.data
+    
+    all_tasks_data = pd.DataFrame()
+    
+    for task in tasks_data.items:
+        single_task_response = GetSingleTasksRequest(task.guid)
+        single_task_data = single_task_response.data
+        
+        processed_data = process_task_data(single_task_data.task)
+        task_df = pd.DataFrame([processed_data])
+        
+        all_tasks_data = pd.concat([all_tasks_data, task_df], ignore_index=True)
+    
     if getattr(sys, 'frozen', False):
         file_path = executable_dir
     else:
         file_path = os.getcwd()
     excel_file_path = os.path.join(file_path, 'output.xlsx')
-    writer = pd.ExcelWriter(excel_file_path, engine='xlsxwriter')
-    df.to_excel(writer, sheet_name='Sheet1', index=False)
+    
+    # 显示加载消息
+    with LoadingMessage():
+        WriteToExcel(all_tasks_data, excel_file_path)
 
+def PrintLoadingMessage(duration):
+    """
+    显示动态加载信息
+    """
+    msg = "正在读取中"
+    sys.stdout.write(msg)
+    sys.stdout.flush()
+    dots = ["", ".", "..", "..."]
+    end_time = time.time() + duration
+    
+    while time.time() < end_time:
+        for dot in dots:
+            sys.stdout.write(dot)
+            sys.stdout.flush()
+            time.sleep(0.5)
+            sys.stdout.write('\b \b' * len(dot))
+
+class LoadingMessage:
+    def __enter__(self):
+        print("\n正在写入中...")
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        print("\nExcel 文件保存成功！")
+
+def WriteToExcel(all_tasks_data, excel_file_path):
+    """
+    将任务数据写入Excel文件
+    """
+    writer = pd.ExcelWriter(excel_file_path, engine='xlsxwriter')
+    all_tasks_data.to_excel(writer, sheet_name='Sheet1', index=False)
+    
     workbook = writer.book
     worksheet = writer.sheets['Sheet1']
-
-    for i, col in enumerate(df.columns):
-        column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+    
+    for i, col in enumerate(all_tasks_data.columns):
+        column_len = max(all_tasks_data[col].astype(str).map(len).max(), len(col)) + 2
         worksheet.set_column(i, i, column_len)
-
-    # 保存Excel文件
+    
     writer.close()
-    print("Excel 文件保存成功")
 
 def init():
     if getattr(sys, 'frozen', False):
@@ -79,7 +117,7 @@ def init():
         .log_level(log_level) \
         .build()
 
-def GetListOfTasksRequest():
+def GetSingleTasksRequest(task_Guid):
     client = init()
     request: GetTaskRequest = GetTaskRequest.builder() \
         .task_guid(task_Guid) \
@@ -112,6 +150,26 @@ def GetUserNameRequest(userID):
     
     return response
 
+def GetTasksOfListRequest(page_token=None):
+    client = init()
+    request = TasksTasklistRequest.builder() \
+        .tasklist_guid(tasklist_Guid) \
+        .page_size(100) \
+        .user_id_type("open_id") \
+        .build()
+    
+    if page_token:
+        request.page_token(page_token)
+
+    option = lark.RequestOption.builder().user_access_token(user_Access_Token).build()
+    response = client.task.v2.tasklist.tasks(request, option)
+    if not response.success():
+        lark.logger.error(
+            f"client.task.v2.tasklist.tasks failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
+        return
+    
+    return response
+
 def GetNameByUserID(userID):
     response_data = json.loads(lark.JSON.marshal(GetUserNameRequest(userID).data, indent=4))
     try:
@@ -125,26 +183,28 @@ def GetMemberNameByLoop(members):
     members_name = []
     if CheckExists(members):
         for member in members:
-            if member['role'] == 'assignee':
-                members_name.append(GetNameByUserID(member['id']))
+            if member.role == 'assignee':
+                members_name.append(GetNameByUserID(member.id))
 
-    return members_name
+    return '、'.join(members_name)
 
-def GetCustomPlannedWorkingHours(custom_fields):
+def GetCustomPlannedWorkingHoursFields(custom_fields):
     """本项目自定义字段：计划工时"""
-    if CheckExists(custom_fields):
-        for fields in custom_fields:
-            if fields['name'] == '计划工时':
-                return fields['number_value']
-        
-    return None
+    if custom_fields is None:
+        return None  
 
-def GetCustomDevelopmentHours(custom_fields):
+    for field in custom_fields:
+        if field.name == '计划工时':
+            return field.number_value  
+
+def GetCustomDevelopmentHoursFields(custom_fields):
     """本项目自定义字段：开发工时"""
-    if CheckExists(custom_fields):
-        for fields in custom_fields:
-            if fields['name'] == '开发工时':
-                return fields['number_value']
+    if custom_fields is None:
+        return None  
+
+    for field in custom_fields:
+        if field.name == '开发工时':
+            return field.number_value 
     return None
 
 def TimeChange(unixTime):
