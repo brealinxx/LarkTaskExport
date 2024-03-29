@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 from lark_oapi.api.task.v2 import *
 from lark_oapi.api.contact.v3 import *
 
+#todo 1.multithreading 2.hidden subtask
+
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 if getattr(sys, 'frozen', False):
@@ -28,6 +30,7 @@ def process_task_data(task_data, is_subtask=False):
     从任务数据中提取所需信息并转换格式
     """
     processed_data = {
+        '标题': GetSectionNameBySectionGuid(GetSectionGuid(task_data.tasklists)) or pd.NA,
         '任务项': task_data.summary or pd.NA,
         '创建人': GetNameByUserID(task_data.creator.id) or pd.NA,
         '任务创建时间': TimeChange(task_data.created_at) or pd.NA,
@@ -64,14 +67,17 @@ def main():
     with LoadingTimer() as timer:
         tasks_response = GetTasksOfListRequest()
         tasks_data = tasks_response.data
-
+        
         all_tasks_data = pd.DataFrame()
 
         for task in tasks_data.items:
             single_task_response = GetSingleTasksRequest(task.guid)
-            single_task_data = single_task_response.data
             subtasks_response = GetSubTaskOfListRequest(task.guid)
-            subtasks_data = subtasks_response.data
+            try:
+                single_task_data = single_task_response.data
+                subtasks_data = subtasks_response.data
+            except:
+                print("请重置 USER_ACCESS_TOKEN 后重试")
 
             # 处理主任务数据
             processed_data = process_task_data(single_task_data.task, is_subtask=False)
@@ -100,30 +106,6 @@ def main():
 
         WriteToExcel(all_tasks_data, excel_file_path)
 
-def PrintLoadingMessage(duration):
-    """
-    显示动态加载信息
-    """
-    msg = "正在读取中"
-    sys.stdout.write(msg)
-    sys.stdout.flush()
-    dots = ["", ".", "..", "..."]
-    end_time = time.time() + duration
-    
-    while time.time() < end_time:
-        for dot in dots:
-            sys.stdout.write(dot)
-            sys.stdout.flush()
-            time.sleep(0.5)
-            sys.stdout.write('\b \b' * len(dot))
-
-class LoadingMessage:
-    def __enter__(self):
-        print("\n正在写入中...")
-    
-    def __exit__(self, exc_type, exc_value, traceback):
-        print("\nExcel 文件保存成功！")
-
 def WriteToExcel(df, excel_file_path):
     writer = pd.ExcelWriter(excel_file_path, engine='xlsxwriter')
     df.to_excel(writer, sheet_name='Sheet1', index=False)
@@ -131,13 +113,15 @@ def WriteToExcel(df, excel_file_path):
     workbook = writer.book
     worksheet = writer.sheets['Sheet1']
     
-    subtask_format = workbook.add_format({'font_size': 8})
-    
+    subtask_format = workbook.add_format({'font_size': 9})
+    worksheet.set_column('J:J', None, subtask_format, {'hidden': True})
+
     for idx, row in df.iterrows():
         if row['IsSubtask']:
             worksheet.set_row(idx + 1, None, subtask_format) 
     
     writer.close()
+
 def init():
     if getattr(sys, 'frozen', False):
         log_level = lark.LogLevel.INFO 
@@ -222,6 +206,21 @@ def GetSubTaskOfListRequest(task_id, page_token=None):
     
     return response
 
+def GetCustomSectionRequest(section_Guid):
+    client = init()
+    request: GetSectionRequest = GetSectionRequest.builder() \
+        .section_guid(section_Guid) \
+        .user_id_type("open_id") \
+        .build()
+    option = lark.RequestOption.builder().user_access_token(user_Access_Token).build()
+    response: GetSectionResponse = client.task.v2.section.get(request, option)
+    if not response.success():
+        lark.logger.error(
+            f"client.task.v2.section.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
+        return
+    
+    return response
+
 
 def GetNameByUserID(userID):
     response_data = json.loads(lark.JSON.marshal(GetUserNameRequest(userID).data, indent=4))
@@ -229,7 +228,6 @@ def GetNameByUserID(userID):
         name = response_data['user']['name']
         return name
     except KeyError as e:
-        print(f"KeyError: {e}")
         return None
     
 def GetMemberNameByLoop(members):
@@ -240,6 +238,21 @@ def GetMemberNameByLoop(members):
                 members_name.append(GetNameByUserID(member.id))
 
     return '、'.join(members_name)
+
+def GetSectionNameBySectionGuid(section_guid):
+    response = GetCustomSectionRequest(section_guid)
+    if response:
+        section_data = response.data
+        return section_data.section.name
+    
+    return None
+
+def GetSectionGuid(taskList):
+    if taskList:
+        for i in taskList:
+            return i.section_guid
+        
+    return None
 
 def GetCustomPlannedWorkingHoursFields(custom_fields):
     """本项目自定义字段：计划工时"""
@@ -264,8 +277,8 @@ def GetCustomDevelopmentHoursFields(custom_fields):
 def TimeChange(unixTime):
     if CheckExists(unixTime):
         timestamp = int(unixTime) / 1000
-        return datetime.fromtimestamp(timestamp)
-    
+        return datetime.fromtimestamp(timestamp) if timestamp else None
+        
 def CheckExists(unCheckItem):
     return unCheckItem != None or unCheckItem != ''
 
