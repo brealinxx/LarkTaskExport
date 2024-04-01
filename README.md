@@ -64,3 +64,7 @@ pip install -r requirements.txt
 ## 贡献
  
 欢迎提交 PR 来贡献代码，或通过 Issues 提出新功能建议或报告错误。
+
+## LICENSE
+
+MIT
