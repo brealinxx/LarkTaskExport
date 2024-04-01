@@ -19,12 +19,12 @@
 
 1. 将项目拉取到本地
 
-`git clone git@github.com:brealinxx/larkTaskExport.git`
+`git clone git@github.com:brealinxx/LarkTaskExport.git`
 
 2. 建立环境、安装依赖
 
 ```zsh
-cd larkTaskExport
+cd LarkTaskExport
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -55,7 +55,7 @@ pip install -r requirements.txt
 
 ### DEV
 
-上述步骤大致相同，只不过如果需要自己加功能测试则需要把 `.env` 文件放在 larkTaskExport 目录下，然后正常 `python main.py` 启动程序即可，Excel 文件也会在当前文件夹下生成
+上述步骤大致相同，只不过如果需要自己加功能测试则需要把 `.env` 文件放在 LarkTaskExport 目录下，然后正常 `python main.py` 启动程序即可，Excel 文件也会在当前文件夹下生成
 
 ## TODO
 
@@ -63,7 +63,7 @@ pip install -r requirements.txt
 
 ## 贡献
  
-欢迎提交 PR 来贡献代码，或通过 Issues 提出新功能建议或报告错误。
+欢迎提交 PR 来贡献代码，或通过 Issues 提出新功能建议或报告错误
 
 ## LICENSE
 
