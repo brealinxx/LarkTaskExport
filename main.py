@@ -42,9 +42,12 @@ def get_redirect_url():
 def GetCodeFromRedirectURL():
     with get_redirect_url() as redirected_url:
         parsed_url = urlparse(redirected_url)
-        code = parse_qs(parsed_url.query).get('code')[0]
-        return code if code else print("请检查登陆情况和 URL 是否复制正确并重新启动程序")
-
+        try:
+            code = parse_qs(parsed_url.query).get('code')[0]
+            return code
+        except:
+            raise ValueError("请检查登陆情况和 URL 是否复制正确并重新启动程序")
+        
 def initToken():
     if getattr(sys, 'frozen', False):
         log_level = lark.LogLevel.INFO 
@@ -76,8 +79,8 @@ def GetUserAccessTokenRequest():
             return
         
         return response
-    
-    return
+    else:
+        return
 
 try:
     user_Access_Token = GetUserAccessTokenRequest().data.access_token
