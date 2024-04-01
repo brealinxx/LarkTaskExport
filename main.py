@@ -5,13 +5,18 @@ import sys
 import os
 import time
 import warnings
+import webbrowser
 from os import environ
 from datetime import datetime
 from dotenv import load_dotenv
 from lark_oapi.api.task.v2 import *
 from lark_oapi.api.contact.v3 import *
+from lark_oapi.api.authen.v1 import *
+from lark_oapi.api.auth.v3 import *
+from urllib.parse import urlparse, parse_qs
+from contextlib import contextmanager
 
-#todo 1.multithreading 2.hidden subtask
+#todo 1.auto useraccesstoken(complete) 2.multithreading 2.hidden subtask
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -22,8 +27,62 @@ else:
     script_dir = os.path.dirname(sys.argv[0])
     env_path = os.path.join(script_dir, '.env')
 load_dotenv(env_path)
-user_Access_Token = environ.get("USER_ACCESS_TOKEN")
+app_Id = environ.get("APP_ID")
+app_Secret = environ.get("APP_SECRET")
 tasklist_Guid = environ.get("TASKLIST_GUID")
+
+@contextmanager
+def get_redirect_url():
+    redirect_url = f'https://open.feishu.cn/open-apis/authen/v1/index?app_id={app_Id}&redirect_uri=https://open.feishu.cn/app/{app_Id}/safe&state='''
+    webbrowser.open(redirect_url)
+
+    redirected_url = input("请复制登陆后的浏览器地址栏中的 URL 并粘贴在这里，然后按 Enter 键继续：")
+    yield redirected_url
+
+def GetCodeFromRedirectURL():
+    with get_redirect_url() as redirected_url:
+        parsed_url = urlparse(redirected_url)
+        code = parse_qs(parsed_url.query).get('code')[0]
+        return code if code else print("请检查登陆情况和 URL 是否复制正确并重新启动程序")
+
+def initToken():
+    if getattr(sys, 'frozen', False):
+        log_level = lark.LogLevel.INFO 
+    else:
+        log_level = lark.LogLevel.DEBUG
+
+    return lark.Client.builder() \
+        .app_id(app_Id) \
+        .app_secret(app_Secret) \
+        .log_level(log_level) \
+        .build()
+
+code = GetCodeFromRedirectURL()
+
+def GetUserAccessTokenRequest():
+    client = initToken()
+    request: CreateOidcAccessTokenRequest = CreateOidcAccessTokenRequest.builder() \
+        .request_body(CreateOidcAccessTokenRequestBody.builder()
+            .grant_type("authorization_code")
+            .code(code)
+            .build()) \
+        .build()
+    
+    if request:
+        response: CreateOidcAccessTokenResponse = client.authen.v1.oidc_access_token.create(request)
+        if not response.success():
+            lark.logger.error(
+                f"client.authen.v1.oidc_access_token.create failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
+            return
+        
+        return response
+    
+    return
+
+try:
+    user_Access_Token = GetUserAccessTokenRequest().data.access_token
+except:
+    print("请检查 User_Access_Token")
 
 def process_task_data(task_data, is_subtask=False):
     """
@@ -98,6 +157,8 @@ def main():
 
             timer.update_timer()
 
+        #all_tasks_data = all_tasks_data.sort_values(by='任务创建时间', ascending=True)
+
         if getattr(sys, 'frozen', False):
             file_path = executable_dir
         else:
@@ -114,7 +175,7 @@ def WriteToExcel(df, excel_file_path):
     worksheet = writer.sheets['Sheet1']
     
     subtask_format = workbook.add_format({'font_size': 9})
-    worksheet.set_column('J:J', None, subtask_format, {'hidden': True})
+    # worksheet.set_column('J:J', None, subtask_format, {'hidden': True})
 
     for idx, row in df.iterrows():
         if row['IsSubtask']:
@@ -215,8 +276,9 @@ def GetCustomSectionRequest(section_Guid):
     option = lark.RequestOption.builder().user_access_token(user_Access_Token).build()
     response: GetSectionResponse = client.task.v2.section.get(request, option)
     if not response.success():
-        lark.logger.error(
-            f"client.task.v2.section.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
+        # The subtask may not have a title / 子任务可能没有标题
+        # lark.logger.error(
+        #     f"client.task.v2.section.get failed, code: {response.code}, msg: {response.msg}, log_id: {response.get_log_id()}")
         return
     
     return response
@@ -274,10 +336,23 @@ def GetCustomDevelopmentHoursFields(custom_fields):
             return field.number_value 
     return None
 
+def CheckExcelFilePath(executable_dir):
+    if getattr(sys, 'frozen', False):
+        file_path = executable_dir
+    else:
+        file_path = os.getcwd()
+    return os.path.join(file_path, 'output.xlsx')
+
 def TimeChange(unixTime):
     if CheckExists(unixTime):
-        timestamp = int(unixTime) / 1000
-        return datetime.fromtimestamp(timestamp) if timestamp else None
+        if isinstance(unixTime, (int, float, str)):
+            timestamp = int(unixTime) / 1000
+            return datetime.fromtimestamp(timestamp)
+        else:
+            print(f"无法处理的时间格式: {unixTime}")
+            return None
+    else:
+        return None
         
 def CheckExists(unCheckItem):
     return unCheckItem != None or unCheckItem != ''
