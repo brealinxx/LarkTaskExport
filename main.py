@@ -346,7 +346,7 @@ def GetNameByUserID(userID):
         name = response_data["user"]["name"]
         return name
     except KeyError as e:
-        return None
+         return None
 
 
 def GetMemberNameByLoop(members):
