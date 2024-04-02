@@ -3,3 +3,4 @@ pandas
 python-dotenv
 pyinstaller
 python-dotenv
+black
