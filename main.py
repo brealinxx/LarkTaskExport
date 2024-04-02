@@ -91,9 +91,14 @@ def process_task_data(task_data, is_subtask=False):
     """
     从任务数据中提取所需信息并转换格式
     """
+    if is_subtask:
+        task_item = '  ' + (task_data.summary or pd.NA)  # 在任务项内容前面添加两个空格
+    else:
+        task_item = task_data.summary or pd.NA
+
     processed_data = {
         '标题': GetSectionNameBySectionGuid(GetSectionGuid(task_data.tasklists)) or pd.NA,
-        '任务项': task_data.summary or pd.NA,
+        '任务项': task_item,
         '创建人': GetNameByUserID(task_data.creator.id) or pd.NA,
         '任务创建时间': TimeChange(task_data.created_at) or pd.NA,
         '负责人': GetMemberNameByLoop(task_data.members) or pd.NA,
@@ -347,13 +352,12 @@ def CheckExcelFilePath(executable_dir):
     return os.path.join(file_path, 'output.xlsx')
 
 def TimeChange(unixTime):
-    if CheckExists(unixTime):
-        if isinstance(unixTime, (int, float, str)):
-            timestamp = int(unixTime) / 1000
-            return datetime.fromtimestamp(timestamp)
-        else:
-            print(f"无法处理的时间格式: {unixTime}")
+    if unixTime:
+        timestamp = int(unixTime) / 1000
+        if datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S') == '1970-01-01 08:00:00':
             return None
+        else:
+            return datetime.fromtimestamp(timestamp)
     else:
         return None
         
