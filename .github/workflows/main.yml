@@ -27,4 +27,10 @@ jobs:
         
     - name: Check code formatting
       run: |
-        black . 
+        black . --check --diff
+        
+    - name: Auto fix suggestions
+      if: failure()
+      run: |
+        echo "::warning::Code formatting issues found. Please fix them locally by running 'black .'"
+        echo "::warning::If on main branch, you can use 'black . && git commit -am 'fix: format code with black' && git push' to update the code"
